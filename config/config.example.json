@@ -1,0 +1,96 @@
+{
+  "_comment": "複製此檔案為 config.json，填入你的真實設定。config.json 已加入 .gitignore，不會被提交。",
+
+  "openai": {
+    "api_key": "sk-proj-YOUR_OPENAI_API_KEY_HERE"
+  },
+
+  "anthropic": {
+    "api_key": "sk-ant-YOUR_ANTHROPIC_API_KEY_HERE"
+  },
+
+  "analysis_ipa": {
+    "input_file": "data/processed/sorted_dataset.csv",
+    "output_file": "data/output/reviews_analysis_with_importance.csv",
+    "model": "gpt-4o-mini",
+    "sleep_seconds": 0.1,
+    "save_interval": 10,
+    "resume": true,
+    "target_hotels": null
+  },
+
+  "analysis_mini": {
+    "input_file": "data/processed/sorted_dataset.csv",
+    "output_file": "data/output/reviews_mini_analysis.csv",
+    "model": "gpt-4o-mini",
+    "sleep_seconds": 0.1,
+    "save_interval": 100,
+    "resume": true,
+    "target_hotels": [
+      "励骏酒店",
+      "北京王府井希尔顿酒店"
+    ]
+  },
+
+  "analysis_4o": {
+    "input_file": "data/processed/sorted_dataset.csv",
+    "output_file": "data/output/reviews_periods_gpt4o.csv",
+    "model": "gpt-4o",
+    "output_format": "json",
+    "sleep_seconds": 0.3,
+    "save_interval": 10,
+    "resume": true,
+    "target_hotels": [
+      "励骏酒店",
+      "北京王府井希尔顿酒店"
+    ],
+    "periods": {
+      "COVID前":  { "start": "2019-01-01", "end": "2019-12-31" },
+      "爆發期":   { "start": "2020-01-01", "end": "2020-12-31" },
+      "恢復期":   { "start": "2021-01-01", "end": "2021-12-31" },
+      "後疫情":   { "start": "2022-01-01", "end": "2022-12-31" }
+    }
+  },
+
+  "classification": {
+    "input_file": "data/output/reviews_analysis_with_importance.csv",
+    "output_dir": "data/output",
+    "model": "gpt-4o-mini"
+  },
+
+  "dashboard": {
+    "input_file": "data/output/final_report_hybrid_10k.xlsx",
+    "output_dir": "data/output",
+    "enable_ai_advisor": true
+  },
+
+  "swot": {
+    "input_file": "data/output/ipa_extracted_data.csv",
+    "output_dir": "data/output/swot",
+    "focal_hotel": null,
+    "periods": null
+  },
+
+  "importance_posthoc": {
+    "input_file": "data/output/ipa_all_hotels_statistics.csv",
+    "output_file": "data/output/importance_posthoc.csv",
+    "model": "gpt-4o"
+  },
+
+  "validation": {
+    "input_file": "data/processed/sorted_dataset.csv",
+    "output_dir": "data/output/validation",
+    "sample_size": 200,
+    "num_runs": 5,
+    "models": {
+      "gpt4o_mini": "gpt-4o-mini",
+      "claude_sonnet": "claude-sonnet-4-6-20250514"
+    }
+  },
+
+  "stats": {
+    "raw_input_file": "data/output/reviews_analysis_with_importance.csv",
+    "ipa_input_file": "data/output/ipa_all_hotels_statistics.csv",
+    "output_dir": "data/output"
+  }
+}

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# API Keys
+config/config.json
+*.env
+
+# Data (regenerable)
+data/output/
+data/processed/
+data/raw/*.xlsx
+
+# System
+.DS_Store
+Thumbs.db
+.claude/
+*.bak
+*.tmp
