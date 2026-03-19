@@ -1,7 +1,5 @@
 # Hotel Review Analysis Based on Large Language Models
 
-基於大型語言模型的中文酒店評論 IPA 分析系統
-
 ## 研究背景
 
 - **資料**：北京 5 家酒店、11,580 筆評論（2019-2022）

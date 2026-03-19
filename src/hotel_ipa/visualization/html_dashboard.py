@@ -181,89 +181,78 @@ def generate_unified_dashboard(
             claude_model = v.get('claude_model', 'Claude Sonnet')
             gt_pairs = v.get('gt_pairs', 0)
 
-            # Spearman results
+            # Spearman results - only show rho, label clearly
             spearman_rows = ""
             model_labels = {
-                'gpt4o_mini': 'GPT-4o-mini vs Ground Truth',
-                'gpt4o': 'GPT-4o vs Ground Truth',
-                'claude': 'Claude Sonnet 4 vs Ground Truth',
+                'gpt4o_mini': ('GPT-4o-mini', '重新分析同批評論，與原始分類結果比較'),
+                'gpt4o': ('GPT-4o', '以更高階模型分析同批評論，與原始分類結果比較'),
+                'claude': (f'Claude Sonnet 4', '以不同廠商模型分析同批評論，與原始分類結果比較'),
             }
-            for mkey, mlabel in model_labels.items():
+            for mkey, (mlabel, mdesc) in model_labels.items():
                 m = vm.get(mkey, {})
                 if not m:
                     continue
                 rho = m.get('score_spearman_rho', 0)
                 rho_cls = 'g' if rho and rho >= 0.7 else ''
-                spearman_rows += f'''<tr>
-                    <td style="text-align:left">{mlabel}</td>
-                    <td>{m.get("attr_recall",0)}%</td>
-                    <td class="g">{m.get("sent_agreement",0)}%</td>
-                    <td class="{rho_cls}"><strong>{rho}</strong></td>
-                    <td>{m.get("score_exact_match",0)}%</td>
-                    <td>{m.get("score_within1",0)}%</td>
-                    <td>{m.get("n_matched",0)}/{m.get("n_gt_pairs",0)}</td>
-                </tr>'''
+                n_matched = m.get('n_matched', 0)
+                spearman_rows += f'<tr><td style="text-align:left">{mlabel}</td><td style="text-align:left;color:#888;font-size:.82em">{mdesc}</td><td class="{rho_cls}"><strong>{rho}</strong></td><td>{n_matched}</td></tr>'
 
             validation_html = f'''
             <div class="section">
                 <div class="section-title">穩定性與有效性驗證</div>
                 <p class="desc">
                     從已分類完成的資料中分層抽樣 <strong>{v.get("sample_size",50)}</strong> 條評論（共 {gt_pairs} 個屬性配對），
-                    以原始分類結果為 Ground Truth，重新送入三個模型分析，比較屬性分類、情感判斷、績效評分的一致性。<br>
-                    Claude 模型版本：<code>{claude_model}</code>
-                </p>
-                <p class="desc" style="background:#f8f9fb;padding:10px 14px;border-radius:6px;border-left:3px solid #e94560">
-                    <strong>Ground Truth 定義：</strong>Ground Truth 為 GPT-4o-mini 原始分析經兩階段 AI 分類後的結果。
+                    以原始分類結果為基準（Ground Truth），分別送入三個模型重新分析，比較績效評分的一致性。<br>
+                    Ground Truth = GPT-4o-mini 原始分析經兩階段 AI 分類後的最終結果。
                 </p>
 
-                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">穩定性：Fleiss&apos; Kappa（GPT-4o-mini 內部一致性）</h4>
-                <p class="desc" style="text-align:center">同一模型對相同評論跑 {fk.get("num_runs",5)} 次，Kappa 越接近 1 代表結果越可重現。</p>
+                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">穩定性：Fleiss&apos; Kappa</h4>
+                <p class="desc" style="text-align:center">GPT-4o-mini 對相同評論跑 {fk.get("num_runs",5)} 次，檢驗結果可重現性。</p>
                 <div class="cards" style="margin-bottom:20px;justify-content:center">
                     <div class="card cg" style="max-width:240px"><div class="card-n">{fk.get("kappa",0)}</div>
                     <div class="card-l">Fleiss&apos; Kappa<br><small>{fk.get("interpretation","")}</small></div></div>
                 </div>
 
-                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">有效性：各模型 vs Ground Truth</h4>
+                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">有效性：Spearman 等級相關係數</h4>
                 <p class="desc" style="text-align:center">
-                    <strong>屬性召回率</strong>：Ground Truth 中的屬性，模型是否也識別到&emsp;
-                    <strong>情感一致率</strong>：配對成功的屬性中，情感判斷是否一致&emsp;
-                    <strong>Spearman &rho;</strong>：績效評分的等級相關（&rho; &gt; 0.7 為高度相關）
+                    各模型對同一批評論的同一屬性所給的績效分數，與 Ground Truth 的等級相關。&rho; &gt; 0.7 為高度相關。
                 </p>
                 <table class="tbl"><thead><tr>
-                    <th style="text-align:left">模型比較</th><th>屬性召回</th><th>情感一致</th>
-                    <th>Spearman &rho;</th><th>Score 完全一致</th><th>Score &le;1</th><th>配對數</th>
+                    <th style="text-align:left">比較模型</th><th style="text-align:left">說明</th>
+                    <th>Spearman &rho;</th><th>配對數</th>
                 </tr></thead><tbody>{spearman_rows}</tbody></table>
             </div>'''
 
-        # AI Advisor
+        # AI Advisor (per hotel)
         ai_html = ""
-        ai = s.get('ai_advisor')
-        if ai:
-            findings = ''.join(f'<li>{f}</li>' for f in ai.get('key_findings', []))
-            recs = ''
-            for r in ai.get('improvement_recommendations', [])[:5]:
-                recs += f'''<tr>
-                    <td style="text-align:left;font-weight:600">{r.get("attribute","")}</td>
-                    <td style="text-align:left">{r.get("short_term","")}</td>
-                    <td style="text-align:left">{r.get("medium_term","")}</td>
-                    <td style="text-align:left">{r.get("expected_outcome","")}</td></tr>'''
-            actions = ''
-            for a in ai.get('priority_actions', [])[:5]:
-                actions += f'<tr><td>{a.get("priority","")}</td><td style="text-align:left">{a.get("action","")}</td><td style="text-align:left">{a.get("reason","")}</td><td>{a.get("timeline","")}</td></tr>'
+        ai_per_hotel = s.get('ai_per_hotel', {})
+        if ai_per_hotel:
+            ai_tabs = ''.join(
+                f'<button class="tab{" active" if i==0 else ""}" onclick="sw(this,&apos;{h}&apos;,&apos;aip&apos;)" data-h="{h}">{h}</button>'
+                for i, h in enumerate(ai_per_hotel.keys())
+            )
+            ai_panels = ""
+            for i, (hotel, ai) in enumerate(ai_per_hotel.items()):
+                show = " show" if i == 0 else ""
+                findings = ''.join(f'<li>{f}</li>' for f in ai.get('key_findings', []))
+                recs = ''
+                for r in ai.get('improvement_recommendations', [])[:5]:
+                    recs += f'<tr><td style="text-align:left;font-weight:600">{r.get("attribute","")}</td><td style="text-align:left">{r.get("short_term","")}</td><td style="text-align:left">{r.get("medium_term","")}</td><td style="text-align:left">{r.get("expected_outcome","")}</td></tr>'
+                actions = ''
+                for a in ai.get('priority_actions', [])[:5]:
+                    actions += f'<tr><td>{a.get("priority","")}</td><td style="text-align:left">{a.get("action","")}</td><td style="text-align:left">{a.get("reason","")}</td><td>{a.get("timeline","")}</td></tr>'
+                ai_panels += f'''<div class="panel aip{show}" data-h="{hotel}">
+                    <div style="background:#f8f9fb;padding:16px 20px;border-radius:8px;margin-bottom:16px;font-size:.95em;line-height:1.8">{ai.get("executive_summary","")}</div>
+                    <h4 style="margin:14px 0 8px;text-align:center;color:#1a1a2e">關鍵發現</h4>
+                    <ul style="padding-left:20px;color:#555;line-height:2">{findings}</ul>
+                    {"" if not recs else f'<h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">改進建議</h4><table class="tbl"><thead><tr><th style="text-align:left">屬性</th><th style="text-align:left">短期</th><th style="text-align:left">中期</th><th style="text-align:left">預期效果</th></tr></thead><tbody>{recs}</tbody></table>'}
+                    {"" if not actions else f'<h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">優先行動</h4><table class="tbl"><thead><tr><th>優先級</th><th style="text-align:left">行動</th><th style="text-align:left">理由</th><th>時間</th></tr></thead><tbody>{actions}</tbody></table>'}
+                </div>'''
             ai_html = f'''
             <div class="section" style="border-left:4px solid #e94560">
-                <div class="section-title">AI 顧問分析</div>
-                <div style="background:#f8f9fb;padding:16px 20px;border-radius:8px;margin-bottom:16px;font-size:.95em;line-height:1.8">
-                    {ai.get("executive_summary", "")}
-                </div>
-                <h4 style="margin:14px 0 8px;text-align:center;color:#1a1a2e">關鍵發現</h4>
-                <ul style="padding-left:20px;color:#555;line-height:2">{findings}</ul>
-                {"" if not recs else f"""
-                <h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">改進建議</h4>
-                <table class="tbl"><thead><tr><th style="text-align:left">屬性</th><th style="text-align:left">短期 (1-3月)</th><th style="text-align:left">中期 (3-6月)</th><th style="text-align:left">預期效果</th></tr></thead><tbody>{recs}</tbody></table>"""}
-                {"" if not actions else f"""
-                <h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">優先行動</h4>
-                <table class="tbl"><thead><tr><th>優先級</th><th style="text-align:left">行動</th><th style="text-align:left">理由</th><th>時間</th></tr></thead><tbody>{actions}</tbody></table>"""}
+                <div class="section-title">AI 顧問分析（各酒店）</div>
+                <div class="tabs">{ai_tabs}</div>
+                {ai_panels}
             </div>'''
 
         stats_html = f'''

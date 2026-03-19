@@ -428,15 +428,17 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
             overview_stats['validation'] = _json.load(f)
         print(f"   載入穩定性驗證結果: {validation_path}")
 
-    # ---- AI Advisor ----
+    # ---- AI Advisor (per hotel) ----
     if api_key:
         try:
             from hotel_ipa.visualization.ai_advisor import AIAdvisor
             print("\n🤖 AI 顧問分析...")
             advisor = AIAdvisor(api_key=api_key)
-            ai_analysis = advisor.analyze_ipa_data(priority_all, "全部酒店")
-            overview_stats['ai_advisor'] = ai_analysis
-            print(f"   ✓ AI 顧問分析完成")
+            ai_per_hotel = {}
+            for hotel, pdf in hotel_priority_dfs.items():
+                ai_per_hotel[hotel] = advisor.analyze_ipa_data(pdf, hotel)
+                print(f"   ✓ {hotel}")
+            overview_stats['ai_per_hotel'] = ai_per_hotel
         except Exception as e:
             print(f"   ⚠️ AI 顧問失敗: {e}")
 
