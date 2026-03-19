@@ -428,6 +428,18 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
             overview_stats['validation'] = _json.load(f)
         print(f"   載入穩定性驗證結果: {validation_path}")
 
+    # ---- AI Advisor ----
+    if api_key:
+        try:
+            from hotel_ipa.visualization.ai_advisor import AIAdvisor
+            print("\n🤖 AI 顧問分析...")
+            advisor = AIAdvisor(api_key=api_key)
+            ai_analysis = advisor.analyze_ipa_data(priority_all, "全部酒店")
+            overview_stats['ai_advisor'] = ai_analysis
+            print(f"   ✓ AI 顧問分析完成")
+        except Exception as e:
+            print(f"   ⚠️ AI 顧問失敗: {e}")
+
     # ---- Unified dashboard ----
     print("\n📄 生成統一儀表板...")
     unified_path = os.path.join(ipa_dir, "IPA統一儀表板.html")

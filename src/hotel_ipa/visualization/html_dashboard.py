@@ -235,6 +235,37 @@ def generate_unified_dashboard(
                 </tr></thead><tbody>{spearman_rows}</tbody></table>
             </div>'''
 
+        # AI Advisor
+        ai_html = ""
+        ai = s.get('ai_advisor')
+        if ai:
+            findings = ''.join(f'<li>{f}</li>' for f in ai.get('key_findings', []))
+            recs = ''
+            for r in ai.get('improvement_recommendations', [])[:5]:
+                recs += f'''<tr>
+                    <td style="text-align:left;font-weight:600">{r.get("attribute","")}</td>
+                    <td style="text-align:left">{r.get("short_term","")}</td>
+                    <td style="text-align:left">{r.get("medium_term","")}</td>
+                    <td style="text-align:left">{r.get("expected_outcome","")}</td></tr>'''
+            actions = ''
+            for a in ai.get('priority_actions', [])[:5]:
+                actions += f'<tr><td>{a.get("priority","")}</td><td style="text-align:left">{a.get("action","")}</td><td style="text-align:left">{a.get("reason","")}</td><td>{a.get("timeline","")}</td></tr>'
+            ai_html = f'''
+            <div class="section" style="border-left:4px solid #e94560">
+                <div class="section-title">AI 顧問分析</div>
+                <div style="background:#f8f9fb;padding:16px 20px;border-radius:8px;margin-bottom:16px;font-size:.95em;line-height:1.8">
+                    {ai.get("executive_summary", "")}
+                </div>
+                <h4 style="margin:14px 0 8px;text-align:center;color:#1a1a2e">關鍵發現</h4>
+                <ul style="padding-left:20px;color:#555;line-height:2">{findings}</ul>
+                {"" if not recs else f"""
+                <h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">改進建議</h4>
+                <table class="tbl"><thead><tr><th style="text-align:left">屬性</th><th style="text-align:left">短期 (1-3月)</th><th style="text-align:left">中期 (3-6月)</th><th style="text-align:left">預期效果</th></tr></thead><tbody>{recs}</tbody></table>"""}
+                {"" if not actions else f"""
+                <h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">優先行動</h4>
+                <table class="tbl"><thead><tr><th>優先級</th><th style="text-align:left">行動</th><th style="text-align:left">理由</th><th>時間</th></tr></thead><tbody>{actions}</tbody></table>"""}
+            </div>'''
+
         stats_html = f'''
     <div class="section">
         <div class="section-title">資料總覽</div>
@@ -256,7 +287,8 @@ def generate_unified_dashboard(
         <table class="tbl cat"><thead><tr><th style="text-align:left">類別</th><th>數量</th><th>佔比</th><th style="width:40%">分布</th></tr></thead><tbody>{cat_rows}</tbody></table>
     </div>
     {non_std_detail}
-    {validation_html}'''
+    {validation_html}
+    {ai_html}'''
 
     # ---- Build HTML ----
     html = f"""<!DOCTYPE html>
