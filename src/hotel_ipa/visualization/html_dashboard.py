@@ -181,33 +181,35 @@ def generate_unified_dashboard(
             claude_model = v.get('claude_model', 'Claude Sonnet')
             gt_pairs = v.get('gt_pairs', 0)
 
-            # Spearman results - only show rho, label clearly
+            # Spearman results - only GPT-4o and Claude (not mini, since mini IS the ground truth)
             spearman_rows = ""
-            model_labels = {
-                'gpt4o_mini': ('GPT-4o-mini', '重新分析同批評論，與原始分類結果比較'),
-                'gpt4o': ('GPT-4o', '以更高階模型分析同批評論，與原始分類結果比較'),
-                'claude': (f'Claude Sonnet 4', '以不同廠商模型分析同批評論，與原始分類結果比較'),
+            compare_models = {
+                'gpt4o': 'GPT-4o',
+                'claude': 'Claude Sonnet 4',
             }
-            for mkey, (mlabel, mdesc) in model_labels.items():
+            for mkey, mlabel in compare_models.items():
                 m = vm.get(mkey, {})
                 if not m:
                     continue
                 rho = m.get('score_spearman_rho', 0)
                 rho_cls = 'g' if rho and rho >= 0.7 else ''
-                n_matched = m.get('n_matched', 0)
-                spearman_rows += f'<tr><td style="text-align:left">{mlabel}</td><td style="text-align:left;color:#888;font-size:.82em">{mdesc}</td><td class="{rho_cls}"><strong>{rho}</strong></td><td>{n_matched}</td></tr>'
+                spearman_rows += f'<tr><td>{mlabel}</td><td class="{rho_cls}"><strong>{rho}</strong></td></tr>'
+
+            sample_n = v.get("sample_size", 50)
 
             validation_html = f'''
             <div class="section">
                 <div class="section-title">穩定性與有效性驗證</div>
                 <p class="desc">
-                    從已分類完成的資料中分層抽樣 <strong>{v.get("sample_size",50)}</strong> 條評論（共 {gt_pairs} 個屬性配對），
-                    以原始分類結果為基準（Ground Truth），分別送入三個模型重新分析，比較績效評分的一致性。<br>
-                    Ground Truth = GPT-4o-mini 原始分析經兩階段 AI 分類後的最終結果。
+                    本研究以 GPT-4o-mini 作為主要分析模型，從已分類完成的 {sample_n} 條評論中，
+                    將相同評論分別送入 GPT-4o 和 Claude Sonnet 4 重新分析，
+                    比較不同模型對同一條評論、同一屬性所給的績效分數是否一致。
                 </p>
 
                 <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">穩定性：Fleiss&apos; Kappa</h4>
-                <p class="desc" style="text-align:center">GPT-4o-mini 對相同評論跑 {fk.get("num_runs",5)} 次，檢驗結果可重現性。</p>
+                <p class="desc" style="text-align:center">
+                    GPT-4o-mini 對相同 {sample_n} 條評論跑 {fk.get("num_runs",5)} 次，檢驗分類結果是否可重現。
+                </p>
                 <div class="cards" style="margin-bottom:20px;justify-content:center">
                     <div class="card cg" style="max-width:240px"><div class="card-n">{fk.get("kappa",0)}</div>
                     <div class="card-l">Fleiss&apos; Kappa<br><small>{fk.get("interpretation","")}</small></div></div>
@@ -215,12 +217,15 @@ def generate_unified_dashboard(
 
                 <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">有效性：Spearman 等級相關係數</h4>
                 <p class="desc" style="text-align:center">
-                    各模型對同一批評論的同一屬性所給的績效分數，與 Ground Truth 的等級相關。&rho; &gt; 0.7 為高度相關。
+                    以 GPT-4o-mini 的分類結果為基準，其他模型對同一條評論的同一屬性給出的績效分數，
+                    與基準的等級相關。&rho; &gt; 0.7 表示高度相關，代表不同模型的評分趨勢一致。
                 </p>
                 <table class="tbl"><thead><tr>
-                    <th style="text-align:left">比較模型</th><th style="text-align:left">說明</th>
-                    <th>Spearman &rho;</th><th>配對數</th>
+                    <th>比較模型</th><th>Spearman &rho;</th>
                 </tr></thead><tbody>{spearman_rows}</tbody></table>
+                <p class="desc" style="text-align:center;margin-top:10px">
+                    樣本：{sample_n} 條評論 | 比較方式：同一評論 &times; 同一屬性的績效分數配對
+                </p>
             </div>'''
 
         # AI Advisor (per hotel)
