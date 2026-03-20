@@ -444,7 +444,7 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
 
     # ---- Unified dashboard ----
     print("\n📄 生成統一儀表板...")
-    unified_path = os.path.join(ipa_dir, "IPA統一儀表板.html")
+    unified_path = os.path.join(ipa_dir, "酒店評論分析儀表板.html")
     generate_unified_dashboard(
         all_priority_dfs=hotel_priority_dfs,
         priority_all=priority_all,

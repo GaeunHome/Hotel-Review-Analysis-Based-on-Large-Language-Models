@@ -288,7 +288,7 @@ def generate_unified_dashboard(
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>IPA 統一分析儀表板</title>
+<title>酒店評論分析儀表板</title>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -333,11 +333,11 @@ footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 @media(max-width:768px){{.wrap{{padding:12px}}.cards{{gap:8px}}.card{{min-width:100px;padding:12px}}.card-n{{font-size:1.3em}}}}
 </style></head>
 <body>
-<div class="top"><h1>IPA 統一分析儀表板</h1>
+<div class="top"><h1>酒店評論分析儀表板</h1>
 <div class="sub">Importance-Performance Analysis | 五家北京酒店 | {now}</div></div>
 <nav>
 <button class="active" onclick="go('overview')">總覽</button>
-<button onclick="go('interactive')">互動式 IPA</button>
+<button onclick="go('interactive')">互動式分析</button>
 <button onclick="go('trend')">動態趨勢</button>
 <button onclick="go('data')">數據圖表</button>
 </nav>
@@ -349,7 +349,7 @@ footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 <!-- ===== Interactive IPA ===== -->
 <div id="p-interactive" class="page" style="display:none">
 <div class="section">
-<div class="section-title">互動式 IPA 分析</div>
+<div class="section-title">互動式分析 分析</div>
 <p class="desc" style="text-align:center">X 軸為重要度，Y 軸為績效。每個點代表一家酒店的一個屬性。虛線為全體均值分隔線。可篩選屬性、hover 查看數值。</p>
 <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;justify-content:center">
 <button onclick="toggleA(1)" class="tab">全選</button><button onclick="toggleA(0)" class="tab">清除</button>
@@ -385,7 +385,7 @@ footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 </div></div>
 
 </div>
-<footer>IPA 統一分析儀表板 | {now}</footer>
+<footer>酒店評論分析儀表板 | {now}</footer>
 
 <script>
 function go(id){{document.querySelectorAll('.page').forEach(p=>p.style.display='none');document.getElementById('p-'+id).style.display='block';document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));event.currentTarget.classList.add('active');if(id==='interactive'&&!window._pi){{initIPA();window._pi=1}};if(id==='trend'&&!window._ti){{initTrend();window._ti=1}};if(id==='data'&&!window._di){{initData();window._di=1}}}}
@@ -400,7 +400,7 @@ const MK=['circle','square','diamond','cross','triangle-up'];
 let aa=new Set(AT);
 function initIPA(){{const c=document.getElementById('af');AT.forEach(a=>{{const b=document.createElement('span');b.className='tab active';b.textContent=a;b.dataset.a=a;b.onclick=()=>{{aa.has(a)?aa.delete(a):aa.add(a);b.classList.toggle('active',aa.has(a));updIPA()}};c.appendChild(b)}});updIPA()}}
 function toggleA(on){{aa=on?new Set(AT):new Set();document.querySelectorAll('#af .tab').forEach(b=>b.classList.toggle('active',on));updIPA()}}
-function updIPA(){{const f=D.filter(d=>aa.has(d.attr));const t=H.map((h,i)=>{{const p=f.filter(d=>d.hotel===h);return{{x:p.map(d=>d.imp),y:p.map(d=>d.perf),text:p.map(d=>`<b>${{d.attr}}</b><br>${{d.hotel}}<br>重要度:${{d.imp.toFixed(2)}}<br>績效:${{d.perf.toFixed(2)}}<br>提及:${{d.mentions}}|正面率:${{d.pos_rate.toFixed(1)}}%`),name:h,mode:'markers',marker:{{size:14,symbol:MK[i%5],color:p.map(d=>d.color),opacity:.85,line:{{width:1.5,color:'#fff'}}}},hovertemplate:'%{{text}}<extra></extra>',type:'scatter'}}}});Plotly.react('plotly-chart',t,{{xaxis:{{title:'重要度',gridcolor:'#f0f0f0',zeroline:false,linecolor:'#ddd',linewidth:1,mirror:true}},yaxis:{{title:'績效',gridcolor:'#f0f0f0',zeroline:false,linecolor:'#ddd',linewidth:1,mirror:true}},shapes:[{{type:'line',x0:MI,x1:MI,y0:0,y1:1,yref:'paper',line:{{color:'#bbb',width:1,dash:'dash'}}}},{{type:'line',y0:MP,y1:MP,x0:0,x1:1,xref:'paper',line:{{color:'#bbb',width:1,dash:'dash'}}}}],legend:{{orientation:'h',y:-.12,x:.5,xanchor:'center',font:{{size:11}}}},margin:{{l:60,r:20,t:20,b:70}},plot_bgcolor:'#fff',paper_bgcolor:'#fff',hovermode:'closest'}},{{responsive:true}})}}
+function updIPA(){{const f=D.filter(d=>aa.has(d.attr));const jit=[0,-.02,.02,-.04,.04];const t=H.map((h,i)=>{{const p=f.filter(d=>d.hotel===h);return{{x:p.map(d=>d.imp+jit[i%5]),y:p.map(d=>d.perf+jit[(i+2)%5]),text:p.map(d=>`<b>${{d.attr}}</b><br>${{d.hotel}}<br>重要度:${{d.imp.toFixed(2)}}<br>績效:${{d.perf.toFixed(2)}}<br>提及:${{d.mentions}}|正面率:${{d.pos_rate.toFixed(1)}}%`),name:h,mode:'markers',marker:{{size:16,symbol:MK[i%5],color:p.map(d=>d.color),opacity:.85,line:{{width:2,color:'#fff'}}}},hovertemplate:'%{{text}}<extra></extra>',type:'scatter'}}}});Plotly.react('plotly-chart',t,{{xaxis:{{title:'重要度',gridcolor:'#f0f0f0',zeroline:false,linecolor:'#ddd',linewidth:1,mirror:true}},yaxis:{{title:'績效',gridcolor:'#f0f0f0',zeroline:false,linecolor:'#ddd',linewidth:1,mirror:true}},shapes:[{{type:'line',x0:MI,x1:MI,y0:0,y1:1,yref:'paper',line:{{color:'#bbb',width:1,dash:'dash'}}}},{{type:'line',y0:MP,y1:MP,x0:0,x1:1,xref:'paper',line:{{color:'#bbb',width:1,dash:'dash'}}}}],legend:{{orientation:'h',y:-.12,x:.5,xanchor:'center',font:{{size:12}}}},margin:{{l:60,r:20,t:20,b:70}},plot_bgcolor:'#fff',paper_bgcolor:'#fff',hovermode:'closest'}},{{responsive:true}})}}
 
 // Trend
 const TR={trend_json};
