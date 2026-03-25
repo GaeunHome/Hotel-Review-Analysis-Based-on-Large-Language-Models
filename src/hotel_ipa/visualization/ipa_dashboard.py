@@ -416,6 +416,123 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
         plot_importance_comparison(global_importance, posthoc_importance,
                                    os.path.join(compare_dir, "重要度比較_逐筆vs_posthoc.png"))
 
+    # ---- Pairwise SWOT comparisons ----
+    print("\n📊 SWOT 配對比較...")
+    from hotel_ipa.swot.swot_engine import calculate_attribute_performance, classify_internal, apply_swot_rules
+
+    SWOT_PAIRS = [
+        ("励骏酒店", "北京王府井希尔顿酒店"),
+        ("北京天安门王府井漫心酒店", "全季酒店(北京国贸东店)"),
+        ("北京天安门王府井漫心酒店", "麗枫酒店(北京国贸店)"),
+    ]
+
+    from hotel_ipa.visualization.swot_visualization import (
+        plot_swot_performance_bar, plot_dynamic_swot,
+    )
+    from hotel_ipa.constants import SWOT_PERIODS
+    import base64
+
+    def _chart_to_b64(path):
+        with open(path, 'rb') as f:
+            return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+    # Use post-hoc importance if available, otherwise global
+    swot_importance = posthoc_importance if posthoc_importance else global_importance
+
+    # Compute internal classification for each hotel (static, all periods)
+    hotel_perfs = {}
+    for hotel in hotels:
+        perf = calculate_attribute_performance(extracted_df, hotel)
+        perf = classify_internal(perf)
+        hotel_perfs[hotel] = perf
+
+    # Prepare period-filtered data
+    extracted_df_dated = extracted_df.copy()
+    if 'Date' in extracted_df_dated.columns:
+        extracted_df_dated['Date'] = pd.to_datetime(
+            extracted_df_dated['Date'], format='mixed', errors='coerce')
+
+    swot_charts_dir = os.path.join(charts_dir, "swot")
+    os.makedirs(swot_charts_dir, exist_ok=True)
+
+    swot_comparisons = []
+    for focal, competitor in SWOT_PAIRS:
+        if focal not in hotel_perfs or competitor not in hotel_perfs:
+            print(f"   ⚠️ 跳過 {focal} vs {competitor}（資料不足）")
+            continue
+        swot_df = apply_swot_rules(hotel_perfs[focal], hotel_perfs[competitor], focal, competitor)
+        s = (swot_df['SWOT'] == 'S').sum()
+        w = (swot_df['SWOT'] == 'W').sum()
+        o = (swot_df['SWOT'] == 'O').sum()
+        t = (swot_df['SWOT'] == 'T').sum()
+        print(f"   {focal} vs {competitor}: S={s} W={w} O={o} T={t}")
+
+        # Wu (2024) Fig. 6: performance comparison bar chart
+        bar_path = os.path.join(swot_charts_dir, f"perf_bar_{focal}_vs_{competitor}.png")
+        plot_swot_performance_bar(hotel_perfs[focal], hotel_perfs[competitor],
+                                  focal, competitor, bar_path)
+
+        # Dynamic SWOT: compute per-period SWOT (3 periods only)
+        DYNAMIC_PERIODS = {k: v for k, v in SWOT_PERIODS.items() if k != 'COVID前'}
+        period_swot_data = []
+        if 'Date' in extracted_df_dated.columns:
+            for period_name, period_range in DYNAMIC_PERIODS.items():
+                start = pd.to_datetime(period_range['start'])
+                end = pd.to_datetime(period_range['end'])
+                period_df = extracted_df_dated[
+                    (extracted_df_dated['Date'] >= start) &
+                    (extracted_df_dated['Date'] <= end)
+                ]
+                # Need both hotels with enough data
+                f_count = len(period_df[period_df['Hotel Name'] == focal])
+                c_count = len(period_df[period_df['Hotel Name'] == competitor])
+                if f_count < 10 or c_count < 10:
+                    continue
+                f_perf = calculate_attribute_performance(period_df, focal)
+                c_perf = calculate_attribute_performance(period_df, competitor)
+                if len(f_perf) < 3 or len(c_perf) < 3:
+                    continue
+                f_perf = classify_internal(f_perf)
+                c_perf = classify_internal(c_perf)
+                p_swot = apply_swot_rules(f_perf, c_perf, focal, competitor)
+                period_swot_data.append({
+                    'period': period_name,
+                    'swot_df': p_swot,
+                    'focal_perf': f_perf,
+                    'comp_perf': c_perf,
+                })
+
+        # Wu (2024) Fig. 7-9: Dynamic SWOT scatter with arrows
+        dynamic_b64 = ''
+        if period_swot_data:
+            dynamic_path = os.path.join(swot_charts_dir, f"dynamic_swot_{focal}_vs_{competitor}.png")
+            plot_dynamic_swot(period_swot_data, focal, competitor,
+                               importance=swot_importance, output_path=dynamic_path)
+            dynamic_b64 = _chart_to_b64(dynamic_path)
+            print(f"      動態 SWOT: {len(period_swot_data)} 個時期")
+
+        # AI interpretation
+        ai_interp = None
+        if api_key:
+            try:
+                from hotel_ipa.visualization.ai_advisor import AIAdvisor
+                advisor = AIAdvisor(api_key=api_key)
+                ai_interp = advisor.analyze_swot_comparison(swot_df, focal, competitor)
+                print(f"      ✓ AI 解讀完成")
+            except Exception as e:
+                print(f"      ⚠️ AI 解讀失敗: {e}")
+
+        swot_comparisons.append({
+            'focal': focal,
+            'competitor': competitor,
+            'swot_df': swot_df,
+            'focal_perf': hotel_perfs[focal],
+            'comp_perf': hotel_perfs[competitor],
+            'bar_b64': _chart_to_b64(bar_path),
+            'dynamic_b64': dynamic_b64,
+            'ai_interpretation': ai_interp,
+        })
+
     # ---- Compute overview stats ----
     print("\n📊 計算總覽統計...")
     overview_stats = _compute_overview_stats(extracted_df)
@@ -427,20 +544,6 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
         with open(validation_path, 'r', encoding='utf-8') as f:
             overview_stats['validation'] = _json.load(f)
         print(f"   載入穩定性驗證結果: {validation_path}")
-
-    # ---- AI Advisor (per hotel) ----
-    if api_key:
-        try:
-            from hotel_ipa.visualization.ai_advisor import AIAdvisor
-            print("\n🤖 AI 顧問分析...")
-            advisor = AIAdvisor(api_key=api_key)
-            ai_per_hotel = {}
-            for hotel, pdf in hotel_priority_dfs.items():
-                ai_per_hotel[hotel] = advisor.analyze_ipa_data(pdf, hotel)
-                print(f"   ✓ {hotel}")
-            overview_stats['ai_per_hotel'] = ai_per_hotel
-        except Exception as e:
-            print(f"   ⚠️ AI 顧問失敗: {e}")
 
     # ---- Unified dashboard ----
     print("\n📄 生成統一儀表板...")
@@ -454,6 +557,7 @@ def analyze_ipa_dashboard(input_file: str, output_dir: str = "data/output",
         posthoc_importance=posthoc_importance,
         posthoc_dir=os.path.join(charts_dir, "posthoc") if posthoc_importance else None,
         overview_stats=overview_stats,
+        swot_comparisons=swot_comparisons,
         output_path=unified_path,
     )
 

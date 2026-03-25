@@ -151,6 +151,20 @@ def analyze_with_claude(review: str, model: str, api_key: str) -> List[Dict]:
 # Run Multiple Analyses
 # ============================================================================
 
+def _load_raw_cache(cache_path: str) -> dict:
+    """Load raw analysis cache from JSON."""
+    if os.path.exists(cache_path):
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def _save_raw_cache(cache: dict, cache_path: str):
+    """Save raw analysis cache to JSON."""
+    with open(cache_path, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False, indent=1)
+
+
 def run_multiple_analyses(
     sample_df: pd.DataFrame,
     num_runs: int,
@@ -159,41 +173,68 @@ def run_multiple_analyses(
     api_key: str,
     provider: str = "openai",
     sleep_seconds: float = 0.2,
+    cache_path: str = None,
 ) -> Dict[int, List[List[Dict]]]:
     """
     Run the same sample through a model multiple times.
+    Supports resume via cache_path (JSON file storing per-review results).
 
     Returns:
         {run_index: [review_results_list]}
-        where each review_results_list contains parsed JSON items
     """
     analyze_fn = analyze_with_openai if provider == "openai" else analyze_with_claude
+
+    # Load cache: { "run_{i}_review_{review_id}": [...] }
+    cache = _load_raw_cache(cache_path) if cache_path else {}
+    review_ids = sample_df['Review ID'].tolist() if 'Review ID' in sample_df.columns else list(range(len(sample_df)))
 
     all_runs = {}
     for run in range(num_runs):
         print(f"\n   [{model_name}] 第 {run + 1}/{num_runs} 次測試...")
         run_results = []
         errors = 0
+        skipped = 0
 
-        for idx, row in sample_df.iterrows():
+        for i, (idx, row) in enumerate(sample_df.iterrows()):
+            rid = str(review_ids[i])
+            cache_key = f"run_{run}_review_{rid}"
+
+            # Resume: skip if already in cache
+            if cache_key in cache:
+                run_results.append(cache[cache_key])
+                skipped += 1
+                continue
+
             review = str(row['Review Text']).strip()
             if not review:
                 run_results.append([])
+                cache[cache_key] = []
                 continue
 
             try:
                 items = analyze_fn(review, model_id, api_key)
                 run_results.append(items)
+                cache[cache_key] = items
             except Exception as e:
                 run_results.append([])
+                cache[cache_key] = []
                 errors += 1
                 if errors <= 3:
-                    print(f"      ⚠️ 第 {idx} 則錯誤: {e}")
+                    print(f"      ⚠️ 第 {rid} 則錯誤: {e}")
 
             time.sleep(sleep_seconds)
 
+            # Save cache every 20 reviews
+            if cache_path and (i + 1) % 20 == 0:
+                _save_raw_cache(cache, cache_path)
+
         all_runs[run] = run_results
-        print(f"      完成 ({len(run_results)} 則，{errors} 錯誤)")
+        new_count = len(run_results) - skipped
+        print(f"      完成 ({len(run_results)} 則，新跑 {new_count}，跳過 {skipped}，{errors} 錯誤)")
+
+        # Save cache after each run
+        if cache_path:
+            _save_raw_cache(cache, cache_path)
 
     return all_runs
 
@@ -380,28 +421,52 @@ def run_stability_validation(
     openai_model: str = "gpt-4o-mini",
     claude_model: str = "claude-sonnet-4-6-20250514",
 ):
-    """Run full stability validation."""
+    """
+    Run full stability validation with resume support.
+
+    Raw per-review results are cached to JSON files so that interrupted
+    runs can continue from where they left off.
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     print("=" * 70)
     print("穩定性驗證")
     print("=" * 70)
 
-    # Load and sample
+    # Load and sample — keep old sample as base, expand to target size
     df = load_data_file(input_file)
-    sample = stratified_sample(df, sample_size)
-    sample.to_csv(os.path.join(output_dir, "validation_sample.csv"),
+    old_sample_path = os.path.join(output_dir, "sample_reviews.csv")
+    if os.path.exists(old_sample_path):
+        old_sample = pd.read_csv(old_sample_path, encoding='utf-8-sig')
+        old_ids = set(old_sample['Review ID'].tolist())
+        print(f"   既有樣本: {len(old_sample)} 筆")
+
+        if len(old_sample) < sample_size:
+            # Need more reviews — sample from remaining pool
+            remaining = df[~df['Review ID'].isin(old_ids)]
+            extra_needed = sample_size - len(old_sample)
+            extra = stratified_sample(remaining, extra_needed)
+            sample = pd.concat([old_sample, extra], ignore_index=True).head(sample_size)
+            print(f"   擴充至 {len(sample)} 筆（新增 {len(sample) - len(old_sample)} 筆）")
+        else:
+            sample = old_sample.head(sample_size)
+            print(f"   使用既有 {len(sample)} 筆樣本")
+    else:
+        sample = stratified_sample(df, sample_size)
+
+    sample.to_csv(os.path.join(output_dir, "sample_reviews.csv"),
                   index=False, encoding='utf-8-sig')
 
     num_reviews = len(sample)
     results = {}
 
-    # GPT-4o-mini runs
+    # GPT-4o-mini runs (Fleiss' Kappa)
+    gpt_cache = os.path.join(output_dir, "raw_gpt4o_mini.json")
     if openai_key:
         print(f"\n{'='*50}\nGPT-4o-mini 穩定性測試 ({num_runs} 次)\n{'='*50}")
         gpt_runs = run_multiple_analyses(
             sample, num_runs, "GPT-4o-mini", openai_model, openai_key,
-            provider="openai", sleep_seconds=0.15,
+            provider="openai", sleep_seconds=0.15, cache_path=gpt_cache,
         )
         gpt_kappa = compute_fleiss_kappa(gpt_runs, num_reviews)
         results['gpt4o_mini'] = {
@@ -413,29 +478,8 @@ def run_stability_validation(
         print("⚠️ 未提供 OpenAI API Key，跳過 GPT-4o-mini 測試")
         gpt_runs = None
 
-    # Claude Sonnet runs
-    if anthropic_key:
-        print(f"\n{'='*50}\nClaude Sonnet 穩定性測試 ({num_runs} 次)\n{'='*50}")
-        claude_runs = run_multiple_analyses(
-            sample, num_runs, "Claude Sonnet", claude_model, anthropic_key,
-            provider="anthropic", sleep_seconds=0.3,
-        )
-        claude_kappa = compute_fleiss_kappa(claude_runs, num_reviews)
-        results['claude_sonnet'] = {
-            'fleiss_kappa': claude_kappa,
-            'runs': claude_runs,
-        }
-        print(f"\n   Claude Sonnet Fleiss' Kappa: {claude_kappa['kappa']} ({claude_kappa['interpretation']})")
-    else:
-        print("⚠️ 未提供 Anthropic API Key，跳過 Claude 測試")
-        claude_runs = None
-
-    # Cross-model comparison
-    if gpt_runs and claude_runs:
-        print(f"\n{'='*50}\n跨模型一致性比較\n{'='*50}")
-        cohens = compute_cohens_kappa(gpt_runs, claude_runs, num_reviews)
-        results['cross_model'] = cohens
-        print(f"   Cohen's Kappa: {cohens['kappa']} ({cohens['interpretation']})")
+    # Note: Cross-model validation (GPT-4o, Claude) is handled separately
+    # by cross_model.py — this module only tests GPT-4o-mini stability.
 
     # Export results
     export_stability_results(results, output_dir)

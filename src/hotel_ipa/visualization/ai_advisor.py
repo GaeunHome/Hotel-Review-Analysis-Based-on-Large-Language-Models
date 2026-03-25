@@ -166,6 +166,77 @@ class AIAdvisor:
         return '\n'.join(sections)
 
 
+    def analyze_swot_comparison(self, swot_df: pd.DataFrame,
+                                focal_name: str, competitor_name: str) -> str:
+        """Analyze a pairwise SWOT result and return AI interpretation text."""
+        # Build SWOT quadrant summary
+        s_attrs = swot_df[swot_df['SWOT'] == 'S']['屬性'].tolist()
+        w_attrs = swot_df[swot_df['SWOT'] == 'W']['屬性'].tolist()
+        o_attrs = swot_df[swot_df['SWOT'] == 'O']['屬性'].tolist()
+        t_attrs = swot_df[swot_df['SWOT'] == 'T']['屬性'].tolist()
+
+        detail_rows = []
+        for _, row in swot_df.iterrows():
+            detail_rows.append(
+                f"| {row['屬性']} | {row['焦點績效']} | {row['競爭績效']} | "
+                f"{row['績效差異']:+.2f} | {row['SWOT']} | {row['判定規則']} |"
+            )
+        detail_table = (
+            "| 屬性 | 焦點績效 | 競爭績效 | 績效差異 | SWOT | 規則 |\n"
+            "|------|----------|----------|----------|------|------|\n"
+            + "\n".join(detail_rows)
+        )
+
+        prompt = f"""你是一名資深酒店管理顧問。請根據以下 SWOT 分析結果，解讀這張 SWOT 圖表所呈現的競爭態勢。
+
+# 比較組合
+- 焦點酒店：{focal_name}
+- 競爭酒店：{competitor_name}
+
+# SWOT 結果
+- **優勢 (S)**：{', '.join(s_attrs) if s_attrs else '無'}
+- **劣勢 (W)**：{', '.join(w_attrs) if w_attrs else '無'}
+- **機會 (O)**：{', '.join(o_attrs) if o_attrs else '無'}
+- **威脅 (T)**：{', '.join(t_attrs) if t_attrs else '無'}
+
+# 詳細數據
+{detail_table}
+
+# 分析方法說明
+SWOT 分類基於 Wu et al. (2024) R1-R8 規則：
+- 先將每家酒店的屬性績效與自身平均績效比較，分為內部優勢/劣勢
+- 再將焦點酒店與競爭酒店的內部分類及績效進行交叉比較，判定 SWOT
+
+# 請用繁體中文提供以下分析（JSON 格式），純粹解讀數據呈現的現象，不需要給策略建議：
+{{
+    "overall_assessment": "整體競爭態勢解讀（80-120字）：從 S/W/O/T 的數量分布，說明焦點酒店相對於競爭酒店的整體態勢",
+    "strengths_analysis": "優勢屬性解讀（60-100字）：這些屬性為什麼被判定為優勢，績效數據說明了什麼",
+    "weaknesses_analysis": "劣勢屬性解讀（60-100字）：這些屬性的績效落差反映了什麼現象",
+    "opportunities_analysis": "機會屬性解讀（60-100字）：這些屬性的數據呈現出什麼樣的發展空間",
+    "threats_analysis": "威脅屬性解讀（60-100字）：競爭對手在哪些面向構成壓力，數據如何反映"
+}}
+"""
+        try:
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "你是酒店管理SWOT策略分析專家。請用JSON格式回應。"},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3,
+                max_tokens=1500
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"⚠️ SWOT AI 分析失敗: {e}")
+            return {
+                "overall_assessment": "AI 分析暫時無法使用，請參考 SWOT 矩陣數據。",
+                "strengths_analysis": "", "weaknesses_analysis": "",
+                "opportunities_analysis": "", "threats_analysis": "",
+            }
+
+
 if __name__ == "__main__":
     print("AI 顧問模組")
     print("  advisor = AIAdvisor(api_key='your_key')")

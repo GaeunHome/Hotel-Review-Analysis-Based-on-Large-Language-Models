@@ -40,6 +40,7 @@ def generate_unified_dashboard(
     posthoc_importance: dict | None,
     posthoc_dir: str | None,
     overview_stats: dict | None = None,
+    swot_comparisons: list | None = None,
     output_path: str = None,
 ):
     hotels = list(all_priority_dfs.keys())
@@ -181,7 +182,7 @@ def generate_unified_dashboard(
             claude_model = v.get('claude_model', 'Claude Sonnet')
             gt_pairs = v.get('gt_pairs', 0)
 
-            # Spearman results - only GPT-4o and Claude (not mini, since mini IS the ground truth)
+            # Cross-model validation results table
             spearman_rows = ""
             compare_models = {
                 'gpt4o': 'GPT-4o',
@@ -192,18 +193,33 @@ def generate_unified_dashboard(
                 if not m:
                     continue
                 rho = m.get('score_spearman_rho', 0)
+                attr_recall = m.get('attr_recall', 0)
+                sent_agree = m.get('sent_agreement', 0)
+                exact = m.get('score_exact_match', 0)
+                within1 = m.get('score_within1', 0)
+                n_matched = m.get('n_matched', 0)
+                n_gt = m.get('n_gt_pairs', 0)
                 rho_cls = 'g' if rho and rho >= 0.7 else ''
-                spearman_rows += f'<tr><td>{mlabel}</td><td class="{rho_cls}"><strong>{rho}</strong></td></tr>'
+                spearman_rows += (
+                    f'<tr><td>{mlabel}</td>'
+                    f'<td>{attr_recall}%</td>'
+                    f'<td>{sent_agree}%</td>'
+                    f'<td class="{rho_cls}"><strong>{rho}</strong></td>'
+                    f'<td>{exact}%</td>'
+                    f'<td>{within1}%</td>'
+                    f'<td>{n_matched}/{n_gt}</td></tr>'
+                )
 
-            sample_n = v.get("sample_size", 50)
+            sample_n = v.get("sample_size", 200)
+            sampling = v.get("sampling_method", "分數分層抽樣（1-5 分均勻）")
 
             validation_html = f'''
             <div class="section">
                 <div class="section-title">穩定性與有效性驗證</div>
                 <p class="desc">
-                    本研究以 GPT-4o-mini 作為主要分析模型，從已分類完成的 {sample_n} 條評論中，
+                    本研究以 GPT-4o-mini 作為主要分析模型，採用{sampling}方式抽取 {sample_n} 條評論，
                     將相同評論分別送入 GPT-4o 和 Claude Sonnet 4 重新分析，
-                    比較不同模型對同一條評論、同一屬性所給的績效分數是否一致。
+                    比較不同模型對同一條評論、同一屬性的分析結果是否一致。
                 </p>
 
                 <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">穩定性：Fleiss&apos; Kappa</h4>
@@ -215,49 +231,18 @@ def generate_unified_dashboard(
                     <div class="card-l">Fleiss&apos; Kappa<br><small>{fk.get("interpretation","")}</small></div></div>
                 </div>
 
-                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">有效性：Spearman 等級相關係數</h4>
+                <h4 style="margin:18px 0 8px;color:#1a1a2e;text-align:center">有效性：跨模型驗證</h4>
                 <p class="desc" style="text-align:center">
-                    以 GPT-4o-mini 的分類結果為基準，其他模型對同一條評論的同一屬性給出的績效分數，
-                    與基準的等級相關。&rho; &gt; 0.7 表示高度相關，代表不同模型的評分趨勢一致。
+                    以 GPT-4o-mini 的分類結果為基準（ground truth），比較 GPT-4o 和 Claude Sonnet 4
+                    對同一評論、同一屬性的分析結果。Spearman &rho; &gt; 0.7 表示高度相關。
                 </p>
                 <table class="tbl"><thead><tr>
-                    <th>比較模型</th><th>Spearman &rho;</th>
+                    <th>比較模型</th><th>屬性召回率</th><th>情感一致率</th>
+                    <th>Spearman &rho;</th><th>分數完全一致</th><th>分數差&le;1</th><th>配對數</th>
                 </tr></thead><tbody>{spearman_rows}</tbody></table>
                 <p class="desc" style="text-align:center;margin-top:10px">
-                    樣本：{sample_n} 條評論 | 比較方式：同一評論 &times; 同一屬性的績效分數配對
+                    抽樣：{sampling}，{sample_n} 條評論 | 比較粒度：同一評論 &times; 同一屬性
                 </p>
-            </div>'''
-
-        # AI Advisor (per hotel)
-        ai_html = ""
-        ai_per_hotel = s.get('ai_per_hotel', {})
-        if ai_per_hotel:
-            ai_tabs = ''.join(
-                f'<button class="tab{" active" if i==0 else ""}" onclick="sw(this,&apos;{h}&apos;,&apos;aip&apos;)" data-h="{h}">{h}</button>'
-                for i, h in enumerate(ai_per_hotel.keys())
-            )
-            ai_panels = ""
-            for i, (hotel, ai) in enumerate(ai_per_hotel.items()):
-                show = " show" if i == 0 else ""
-                findings = ''.join(f'<li>{f}</li>' for f in ai.get('key_findings', []))
-                recs = ''
-                for r in ai.get('improvement_recommendations', [])[:5]:
-                    recs += f'<tr><td style="text-align:left;font-weight:600">{r.get("attribute","")}</td><td style="text-align:left">{r.get("short_term","")}</td><td style="text-align:left">{r.get("medium_term","")}</td><td style="text-align:left">{r.get("expected_outcome","")}</td></tr>'
-                actions = ''
-                for a in ai.get('priority_actions', [])[:5]:
-                    actions += f'<tr><td>{a.get("priority","")}</td><td style="text-align:left">{a.get("action","")}</td><td style="text-align:left">{a.get("reason","")}</td><td>{a.get("timeline","")}</td></tr>'
-                ai_panels += f'''<div class="panel aip{show}" data-h="{hotel}">
-                    <div style="background:#f8f9fb;padding:16px 20px;border-radius:8px;margin-bottom:16px;font-size:.95em;line-height:1.8">{ai.get("executive_summary","")}</div>
-                    <h4 style="margin:14px 0 8px;text-align:center;color:#1a1a2e">關鍵發現</h4>
-                    <ul style="padding-left:20px;color:#555;line-height:2">{findings}</ul>
-                    {"" if not recs else f'<h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">改進建議</h4><table class="tbl"><thead><tr><th style="text-align:left">屬性</th><th style="text-align:left">短期</th><th style="text-align:left">中期</th><th style="text-align:left">預期效果</th></tr></thead><tbody>{recs}</tbody></table>'}
-                    {"" if not actions else f'<h4 style="margin:18px 0 8px;text-align:center;color:#1a1a2e">優先行動</h4><table class="tbl"><thead><tr><th>優先級</th><th style="text-align:left">行動</th><th style="text-align:left">理由</th><th>時間</th></tr></thead><tbody>{actions}</tbody></table>'}
-                </div>'''
-            ai_html = f'''
-            <div class="section" style="border-left:4px solid #e94560">
-                <div class="section-title">AI 顧問分析（各酒店）</div>
-                <div class="tabs">{ai_tabs}</div>
-                {ai_panels}
             </div>'''
 
         stats_html = f'''
@@ -281,8 +266,118 @@ def generate_unified_dashboard(
         <table class="tbl cat"><thead><tr><th style="text-align:left">類別</th><th>數量</th><th>佔比</th><th style="width:40%">分布</th></tr></thead><tbody>{cat_rows}</tbody></table>
     </div>
     {non_std_detail}
-    {validation_html}
-    {ai_html}'''
+    {validation_html}'''
+
+    # ---- SWOT comparison sections ----
+    swot_html = ""
+    if swot_comparisons:
+        swot_sections = []
+        for idx, comp in enumerate(swot_comparisons):
+            focal = comp['focal']
+            competitor = comp['competitor']
+            swot_df = comp['swot_df']
+            focal_perf = comp.get('focal_perf')
+            comp_perf = comp.get('comp_perf')
+            ai = comp.get('ai_interpretation') or {}
+
+            # Charts
+            bar_b64 = comp.get('bar_b64', '')
+            dynamic_b64 = comp.get('dynamic_b64', '')
+            bar_img = f'<div style="text-align:center;margin-bottom:24px"><img src="{bar_b64}" alt="Performance Comparison" style="max-width:100%;height:auto;border-radius:6px"></div>' if bar_b64 else ''
+            dynamic_img = f'<div style="text-align:center;margin-bottom:24px"><img src="{dynamic_b64}" alt="Dynamic SWOT" style="max-width:100%;height:auto;border-radius:6px"></div>' if dynamic_b64 else ''
+
+            # Wu (2024) Table 4-6 style: full SWOT identification table
+            focal_threshold = float(focal_perf['績效門檻'].iloc[0]) if focal_perf is not None else 0
+            comp_threshold = float(comp_perf['績效門檻'].iloc[0]) if comp_perf is not None else 0
+
+            # Build importance ranking (prefer posthoc, fallback to per-review)
+            imp_ranks = {}
+            if posthoc_importance:
+                imp_sorted = sorted(posthoc_importance.keys(),
+                                    key=lambda a: posthoc_importance[a], reverse=True)
+                for rank, attr in enumerate(imp_sorted, 1):
+                    imp_ranks[attr] = rank
+            elif focal_perf is not None and '平均重要度' in focal_perf.columns:
+                imp_sorted = focal_perf.sort_values('平均重要度', ascending=False)['屬性'].tolist()
+                for rank, attr in enumerate(imp_sorted, 1):
+                    imp_ranks[attr] = rank
+
+            detail_rows = ""
+            for _, row in swot_df.iterrows():
+                attr = row['屬性']
+                f_perf = float(row['焦點績效'])
+                c_perf = float(row['競爭績效'])
+                delta_f = f_perf - focal_threshold
+                delta_c = c_perf - comp_threshold
+                diff = float(row['績效差異'])
+                diff_cls = 'g' if diff >= 0 else 'rd'
+                f_sw = row['焦點內部']
+                c_sw = row['競爭內部']
+                imp_rank = imp_ranks.get(attr, '-')
+
+                detail_rows += (
+                    f'<tr>'
+                    f'<td style="text-align:left;font-weight:600">{attr}</td>'
+                    f'<td>{f_perf:.2f}</td>'
+                    f'<td>{delta_f:+.3f}</td>'
+                    f'<td>{f_sw}</td>'
+                    f'<td>{c_perf:.2f}</td>'
+                    f'<td>{delta_c:+.3f}</td>'
+                    f'<td>{c_sw}</td>'
+                    f'<td class="{diff_cls}">{diff:+.2f}</td>'
+                    f'<td><span class="swot-label">{row["SWOT"]}</span></td>'
+                    f'<td>{imp_rank}</td>'
+                    f'</tr>'
+                )
+
+            # AI interpretation HTML
+            ai_html = ""
+            if ai:
+                ai_parts = []
+                if ai.get('overall_assessment'):
+                    ai_parts.append(f'<p><strong>整體態勢：</strong>{ai["overall_assessment"]}</p>')
+                for key, label in [
+                    ('strengths_analysis', '優勢 (S)'),
+                    ('weaknesses_analysis', '劣勢 (W)'),
+                    ('opportunities_analysis', '機會 (O)'),
+                    ('threats_analysis', '威脅 (T)'),
+                ]:
+                    if ai.get(key):
+                        ai_parts.append(f'<p><strong>{label}：</strong>{ai[key]}</p>')
+                if ai_parts:
+                    ai_html = f'''<div class="ai-interp">
+                        <div class="ai-interp-title">AI 解讀</div>
+                        {''.join(ai_parts)}
+                    </div>'''
+
+            swot_sections.append(f'''
+            <div class="section">
+                <div class="section-title">比較 {idx+1}：{focal} vs {competitor}</div>
+                {bar_img}
+                {dynamic_img}
+                <p class="desc" style="text-align:center">
+                    「Perf」為屬性績效；「ΔPerf」為屬性績效與平均績效（門檻）之差；
+                    「S/W」為內部優勢/劣勢分類；「Perf 差異」為兩酒店績效差。
+                    門檻：{focal}={focal_threshold:.3f}，{competitor}={comp_threshold:.3f}
+                </p>
+                <table class="tbl" style="margin-top:12px">
+                    <thead><tr>
+                        <th rowspan="2" style="text-align:left">屬性</th>
+                        <th colspan="3">{focal}（焦點）</th>
+                        <th colspan="3">{competitor}（競爭）</th>
+                        <th rowspan="2">Perf 差異</th>
+                        <th rowspan="2">SWOT</th>
+                        <th rowspan="2">重要度<br>排序</th>
+                    </tr><tr>
+                        <th>Perf</th><th>ΔPerf</th><th>S/W</th>
+                        <th>Perf</th><th>ΔPerf</th><th>S/W</th>
+                    </tr></thead>
+                    <tbody>{detail_rows}</tbody>
+                </table>
+                {ai_html}
+            </div>''')
+
+        swot_html = '\n'.join(swot_sections)
 
     # ---- Build HTML ----
     html = f"""<!DOCTYPE html>
@@ -329,6 +424,11 @@ nav button.active{{color:#fff;border-bottom-color:#e94560;font-weight:600}}
 .chart-desc{{margin-top:10px;padding:12px 16px;background:#f8f9fb;border-radius:6px;font-size:.85em;color:#666;line-height:1.6}}
 #plotly-chart{{width:100%;height:620px}}
 #trend-chart{{width:100%;height:500px}}
+.swot-label{{display:inline-block;padding:2px 8px;font-weight:600;font-size:.85em;border:1px solid #999;min-width:24px;text-align:center}}
+.ai-interp{{margin-top:18px;padding:18px 22px;background:#f8f9fb;border-radius:8px;border-left:4px solid #1a1a2e}}
+.ai-interp-title{{font-weight:700;color:#1a1a2e;margin-bottom:10px;font-size:1em}}
+.ai-interp p{{margin-bottom:8px;font-size:.88em;color:#444;line-height:1.7}}
+.ai-interp p strong{{color:#1a1a2e}}
 footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 @media(max-width:768px){{.wrap{{padding:12px}}.cards{{gap:8px}}.card{{min-width:100px;padding:12px}}.card-n{{font-size:1.3em}}}}
 </style></head>
@@ -340,6 +440,7 @@ footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 <button onclick="go('interactive')">互動式分析</button>
 <button onclick="go('trend')">動態趨勢</button>
 <button onclick="go('data')">數據圖表</button>
+{'<button onclick="go(\'swot\')">SWOT 分析</button>' if swot_comparisons else ''}
 </nav>
 <div class="wrap">
 
@@ -383,6 +484,8 @@ footer{{text-align:center;color:#aaa;padding:20px;font-size:.78em}}
 </div>
 <div id="data-chart" style="width:100%;height:500px"></div>
 </div></div>
+
+{'<div id="p-swot" class="page" style="display:none">' + swot_html + '</div>' if swot_comparisons else ''}
 
 </div>
 <footer>酒店評論分析儀表板 | {now}</footer>

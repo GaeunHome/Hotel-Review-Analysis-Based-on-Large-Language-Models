@@ -18,6 +18,184 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 SWOT_COLORS = {'S': '#27ae60', 'W': '#e74c3c', 'O': '#3498db', 'T': '#f39c12'}
 SWOT_LABELS = {'S': '優勢 Strength', 'W': '劣勢 Weakness',
                'O': '機會 Opportunity', 'T': '威脅 Threat'}
+SWOT_MARKERS = {'S': 'o', 'W': 's', 'O': 'D', 'T': '^'}
+
+
+# ============================================================================
+# Wu (2024) Style Charts
+# ============================================================================
+
+def _quadrant_labels(ax):
+    """Add Wu (2024) quadrant background labels to a SWOT scatter plot."""
+    props = dict(fontweight='bold', fontstyle='italic', ha='center', va='center', zorder=0)
+    c = '#d5d5d5'
+    ax.text(0.75, 0.75, 'Strength/Threat', transform=ax.transAxes,
+            fontsize=15, color=c, **props)
+    ax.text(0.25, 0.75, 'Opportunity/Threat', transform=ax.transAxes,
+            fontsize=15, color=c, **props)
+    ax.text(0.25, 0.25, 'Weakness/Opportunity', transform=ax.transAxes,
+            fontsize=15, color=c, **props)
+    ax.text(0.75, 0.25, 'Threat/Opportunity', transform=ax.transAxes,
+            fontsize=15, color=c, **props)
+
+
+def _swot_legend(ax):
+    """Add marker-shape + color legend for SWOT types."""
+    elements = [
+        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=SWOT_COLORS['S'],
+                   markersize=9, markeredgecolor='k', label='Strength'),
+        plt.Line2D([0], [0], marker='^', color='w', markerfacecolor=SWOT_COLORS['T'],
+                   markersize=9, markeredgecolor='k', label='Threat'),
+        plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=SWOT_COLORS['W'],
+                   markersize=9, markeredgecolor='k', label='Weakness'),
+        plt.Line2D([0], [0], marker='D', color='w', markerfacecolor=SWOT_COLORS['O'],
+                   markersize=9, markeredgecolor='k', label='Opportunity'),
+    ]
+    ax.legend(handles=elements, loc='upper right', fontsize=9, framealpha=0.9)
+
+
+    # (removed _imp_to_size — uniform marker size now)
+
+
+def plot_swot_performance_bar(focal_perf: pd.DataFrame, comp_perf: pd.DataFrame,
+                               focal_name: str, comp_name: str,
+                               output_path: str = None):
+    """Wu (2024) Fig. 6 style: horizontal bar chart comparing attribute performance."""
+    merged = focal_perf[['屬性', '平均績效']].merge(
+        comp_perf[['屬性', '平均績效']], on='屬性', suffixes=('_focal', '_comp'))
+
+    attrs = merged['屬性'].tolist()
+    f_vals = merged['平均績效_focal'].tolist()
+    c_vals = merged['平均績效_comp'].tolist()
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    y = np.arange(len(attrs))
+    h = 0.35
+
+    bars_f = ax.barh(y - h/2, f_vals, h, label=focal_name, color='#555')
+    bars_c = ax.barh(y + h/2, c_vals, h, label=comp_name, color='#bbb')
+
+    for bars, fmt_c in [(bars_f, '#333'), (bars_c, '#666')]:
+        for bar in bars:
+            w = bar.get_width()
+            ax.text(w + 0.03, bar.get_y() + bar.get_height()/2,
+                    f'{w:.2f}', va='center', fontsize=8.5, color=fmt_c)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(attrs, fontsize=10)
+    ax.set_xlabel('Attribute Performance', fontsize=11)
+    ax.set_title(f'Attribute Performance: {focal_name} vs. {comp_name}',
+                 fontsize=12, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=9)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max(max(f_vals), max(c_vals)) * 1.12)
+    ax.grid(axis='x', alpha=0.2)
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"   ✓ SWOT 績效對比圖: {output_path}")
+    plt.close()
+
+
+def plot_dynamic_swot(period_swot_data: list, focal_name: str, comp_name: str,
+                       importance: dict = None, output_path: str = None):
+    """
+    Wu (2024) Fig. 7-9 style: Dynamic SWOT scatter with arrows.
+
+    - Color = SWOT type (S=green, W=red, O=blue, T=orange) at last period
+    - Marker shape = SWOT type at each period
+    - Arrows connect same attribute across periods
+    - Labels at first period point, adjustText avoids overlapping
+    """
+    if not period_swot_data:
+        return
+
+    # Collect per-attribute trajectories across periods
+    trajectories = {}  # attr → [(delta_c, delta_f, swot, period), ...]
+    for pd_item in period_swot_data:
+        period = pd_item['period']
+        swot_df = pd_item['swot_df']
+        f_threshold = float(pd_item['focal_perf']['績效門檻'].iloc[0])
+        c_threshold = float(pd_item['comp_perf']['績效門檻'].iloc[0])
+
+        for _, row in swot_df.iterrows():
+            attr = row['屬性']
+            delta_f = float(row['焦點績效']) - f_threshold
+            delta_c = float(row['競爭績效']) - c_threshold
+            swot = row['SWOT']
+            if attr not in trajectories:
+                trajectories[attr] = []
+            trajectories[attr].append((delta_c, delta_f, swot, period))
+
+    if not trajectories:
+        return
+
+    fig, ax = plt.subplots(figsize=(11, 9))
+    _quadrant_labels(ax)
+
+    texts = []  # for adjustText
+    label_xs, label_ys = [], []
+
+    for attr, pts in trajectories.items():
+        # Draw arrows connecting consecutive periods
+        for i in range(len(pts) - 1):
+            x0, y0 = pts[i][0], pts[i][1]
+            x1, y1 = pts[i+1][0], pts[i+1][1]
+            ax.annotate('', xy=(x1, y1), xytext=(x0, y0),
+                        arrowprops=dict(arrowstyle='->', color='#888',
+                                        lw=1.2, shrinkA=4, shrinkB=4),
+                        zorder=3)
+
+        # Draw markers at each period with SWOT color
+        for x, y, swot, period in pts:
+            marker = SWOT_MARKERS.get(swot, 'o')
+            color = SWOT_COLORS.get(swot, '#999')
+            ax.scatter(x, y, marker=marker, s=70, c=color,
+                       edgecolors='black', linewidths=0.5, zorder=5, alpha=0.85)
+
+        # Label at FIRST point (start of trajectory)
+        fx, fy = pts[0][0], pts[0][1]
+        t = ax.text(fx, fy, attr, fontsize=8.5, fontweight='bold',
+                    color='#222', zorder=6)
+        texts.append(t)
+        label_xs.append(fx)
+        label_ys.append(fy)
+
+    ax.axhline(0, color='black', linewidth=0.8)
+    ax.axvline(0, color='black', linewidth=0.8)
+
+    # Auto-adjust labels to avoid overlap
+    try:
+        from adjustText import adjust_text
+        adjust_text(texts, x=label_xs, y=label_ys, ax=ax,
+                    arrowprops=dict(arrowstyle='-', color='#aaa', lw=0.5),
+                    force_points=(1.0, 1.0), force_text=(0.6, 0.6),
+                    expand_points=(2.0, 2.0), expand_text=(1.5, 1.5))
+    except ImportError:
+        for t in texts:
+            x0, y0 = t.get_position()
+            t.set_position((x0 + 0.03, y0 + 0.03))
+
+    ax.set_xlabel(f'ΔPerf ({comp_name})', fontsize=11, fontweight='bold')
+    ax.set_ylabel(f'ΔPerf ({focal_name})', fontsize=11, fontweight='bold')
+    ax.set_title(f'Dynamic SWOT ({focal_name} vs. {comp_name})',
+                 fontsize=12, fontweight='bold')
+    ax.grid(alpha=0.15)
+    _swot_legend(ax)
+
+    # Add padding to axes so labels have room
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    pad_x = (xmax - xmin) * 0.08
+    pad_y = (ymax - ymin) * 0.08
+    ax.set_xlim(xmin - pad_x, xmax + pad_x)
+    ax.set_ylim(ymin - pad_y, ymax + pad_y)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"   ✓ Dynamic SWOT: {output_path}")
+    plt.close()
 
 
 # ============================================================================
